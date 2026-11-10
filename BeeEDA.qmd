@@ -15,12 +15,13 @@ library(tidybayes)
 library(tidyverse)
 library(ggpubr)
 library(here)
+library(patchwork)
 
 ```
 
 ```{r}
 # Read in Bee Data
-read_rds(here("data", "bee_data.rds"))
+bee_data <- read_rds(here("data", "bee_data.rds"))
 sd(bee_data$y)
 summary(bee_data$y)
 any(bee_data$t <= 0 | bee_data$t >= 1)   # should be FALSE
@@ -34,125 +35,49 @@ bee_data |> filter(y < -6) |> arrange(y) |> select(state, year, quarter, max_col
 ```
 
 ```{r}
-####################
-# descriptive stats
-####################
+# Alphabetical, AL at the top
+bee_data$state <- factor(bee_data$state, levels = rev(sort(unique(bee_data$state))))
 
-datdes=bee_data
+fsiz <- 8  # prints at true 8 pt because of the ggsave size below
 
-# remove missing data and Inf
-indnum = sapply(datdes, is.numeric)
-datdes <- datdes[is.finite(rowSums(datdes[, indnum])), ]
-dim(datdes)
-summary(datdes)
+base_theme <- theme_bw(base_size = fsiz) +
+  theme(panel.border       = element_rect(colour = "black", fill = NA),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.major.y = element_blank(),
+        axis.text          = element_text(colour = "black"),
+        axis.title         = element_text(face = "bold"),
+        plot.tag           = element_text(face = "bold"),
+        legend.title       = element_text(face = "bold"),
+        legend.key.size    = unit(0.35, "cm"))
 
-datdes = cbind.data.frame(datdes, Quarter = datdes$quarter)
-datdes = cbind.data.frame(datdes, Year = datdes$year)
-datdes = cbind.data.frame(datdes, State = datdes$state)
+box_layer <- geom_boxplot(linewidth = 0.15, width = 0.8, color = "black",
+                          outlier.size = 0.6, outlier.shape = 21,
+                          position = position_dodge(width = 0.85))
 
-years_select <- sort(unique(datdes$year))
-imgPth <- here("Plots")
+p1 <- ggplot(bee_data, aes(x = t, y = state, fill = quarter)) +
+  geom_vline(xintercept = median(bee_data$t), color = "red", linetype = "twodash") +
+  box_layer +
+  scale_x_continuous(limits = c(0, 0.675), breaks = seq(0, 0.6, 0.1),
+                     expand = c(0.005, 0)) +
+  labs(x = "Normalized colony loss", y = NULL, tag = "a") +
+  base_theme
 
-#########################
-# FIG 2
-#########################
-fsiz = 10
-cutoff = median(datdes$t)
-dodge <- position_dodge(width = 1)
+p2 <- ggplot(bee_data, aes(x = varroa, y = state, fill = quarter)) +
+  geom_vline(xintercept = median(bee_data$varroa), color = "red", linetype = "twodash") +
+  box_layer +
+  scale_x_continuous(limits = c(0, 1), breaks = seq(0, 1, 0.2),
+                     expand = c(0.005, 0)) +
+  labs(x = expression(bold("Normalized ")*bolditalic("Varroa destructor")),
+       y = NULL, tag = "b") +
+  base_theme +
+  theme(axis.text.y = element_blank(), axis.ticks.y = element_blank())
 
-myylab = expression(atop(bold(""),
-                         atop(textstyle(bold("Normalized")),
-                              atop(textstyle(bold("Colony Loss"))))))
+p <- (p1 | p2) +
+  plot_layout(guides = "collect") &
+  theme(legend.position = "top")
 
-
-p1<-ggplot(datdes, aes(x=state, y=t, 
-                       color=Quarter, fill=Quarter)) +
-  geom_hline(yintercept = cutoff, color = "red", linetype = "twodash") +
-  geom_boxplot(lwd=0.1, width=0.75, alpha=1,
-               outlier.size = 1.5, outlier.alpha = 1, outlier.shape = 21,
-               color="black") +
-  ylab(myylab) +
-  xlab("States\n") +
-  theme_bw() +
-  theme(legend.position = "top", legend.direction = "horizontal", legend.title = element_text(size=fsiz+2), 
-        legend.text = element_text(size=fsiz)) + 
-  theme(panel.border = element_rect(colour = "black", fill=NA),
-        axis.text = element_text(colour = 1, size = 3.2),
-        legend.background = element_rect(linetype = 1, size = 0.25, colour = 1),
-        legend.key.height=unit(0.4, "cm"), 
-        legend.key.width=unit(0.4, "cm")) +
-  guides(shape = guide_legend(override.aes = list(size = 3))) +
-  theme(axis.title.y = element_text(size = fsiz+2,face="bold", 
-                                    margin = margin(r = -7))) +
-  theme(axis.text.y = element_text(size=fsiz)) +
-  theme(plot.margin = unit(c(0, 2, 5, 0), "mm"),
-        axis.title.x = element_blank(),
-        axis.text.x = element_blank(),
-        panel.grid.minor.x = element_blank()) +
-  if (max(years_select)==2024) {
-    scale_y_continuous(limits = c(0, 0.675),
-                       labels = c(0, format(seq(0.1, 0.60, length=6), nsmall=1)),
-                       breaks = seq(0.00, 0.60, length=7),
-                       expand = c(0.001,0.001))    
-  } 
-# p1
-
-ylabitalics = expression(atop(bold(""),
-                              atop(textstyle(bold("Normalized")),
-                                   atop(textstyle(bolditalic("Varroa destructor"))))))
-cutoff = median(datdes$varroa)
-dodge <- position_dodge(width = 1)
-p2<-ggplot(datdes, aes(x=state, y=varroa, 
-                       color=Quarter, fill=Quarter)) +
-  geom_hline(yintercept = cutoff, color = "red", linetype = "twodash") +
-  geom_boxplot(lwd=0.1, width=0.75, alpha=1,
-               outlier.size = 1.5, outlier.alpha = 1, outlier.shape = 21,
-               color="black", 
-               show.legend = FALSE) +
-  ylab(ylabitalics) +
-  xlab("States") +
-  theme_bw() +
-  theme(panel.border = element_rect(colour = "black", fill=NA),
-        axis.text = element_text(colour = 1, size = 3.2),
-        legend.background = element_rect(linetype = 1, size = 0.25, colour = 1),
-        legend.key.height=unit(0.25, "cm"), 
-        legend.key.width=unit(0.25, "cm")) +
-  guides(shape = guide_legend(override.aes = list(size = 3))) +
-  theme(axis.title.x = element_text(size = fsiz - 2,face="bold"),
-        axis.title.y = element_text(size = fsiz - 2,face="bold", 
-                                    margin = margin(r = -7))) +
-  theme(axis.text.x = element_text(size=fsiz),
-        axis.text.y = element_text(size=fsiz)) +
-  theme(plot.margin=grid::unit(c(1,0,1.5,0), "mm")) +
-  scale_y_continuous(limits = c(0, 1),
-                     labels = c(0, format(seq(0.2, 0.8, length=4), nsmall=1), 1),
-                     breaks = seq(0.00, 1, length=6),
-                     expand = c(0,0))    
-# p2
-
-require(egg)
-p <- egg::ggarrange(p1, p2,
-                    labels = c("a", "b"),
-                    label.args = list(gp = grid::gpar(font = 2, 
-                                                      cex = 1.2)),
-                    # hjust=0,
-                    # heights = c(0.4/0.65, 0.7),
-                    ncol = 1, nrow = 2)
-p
-detach("package:egg", unload=TRUE)
-
-ggsave(filename = "state.pdf",
-       plot = p,
-       path = imgPth,
-       width = 3800,   # back off from 40000
-       height = 1300,
-       units = "px",
-       dpi = "retina",
-       device = cairo_pdf)
-
-
-print("Figure 2")
-
+ggsave("state.pdf", p, path = here("Plots"),
+       width = 6.5, height = 8.5, units = "in", device = cairo_pdf)
 ```
 
 ```{r}

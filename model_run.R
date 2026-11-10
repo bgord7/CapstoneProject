@@ -8,6 +8,8 @@ library(broom.mixed)
 library(brms)
 library(bayesplot)
 library(shinystan)
+install.packages("performance")
+library(performance)
 
 
 list.files(here("data"))
@@ -112,6 +114,20 @@ colony_loss <- brm(bform1, data = bee_data, prior = priors,
                    file_refit = "on_change")
 
 summary(colony_loss)
+icc(colony_loss)
+draws   <- as_draws_df(colony_loss)
+tau0    <- draws$sd_state__y_Intercept
+tau1    <- draws$sd_state__y_varroa
+sigma   <- draws$sigma_y
+nu      <- draws$nu_y
+res_var <- sigma^2 * nu / (nu - 2)
+
+icc_int <- tau0^2 / (tau0^2 + res_var)
+icc_all <- (tau0^2 + tau1^2) / (tau0^2 + tau1^2 + res_var)
+quantile(icc_int, c(.025, .5, .975))
+quantile(icc_all, c(.025, .5, .975))
+print(icc_int)
+print(icc_all)
 rstan::check_hmc_diagnostics(colony_loss$fit)
 loo_full <- loo(colony_loss, resp = "y")
 print(loo_full)
@@ -121,8 +137,11 @@ bayes_R2(colony_loss, resp = "y", re_formula = ~ (1 | state))
 pp_check(colony_loss, resp = "y")
 pp_check(colony_loss, resp = "y", type = "loo_pit_overlay")
 pp_check(colony_loss, resp = "y", type = "stat_grouped", group = "state")
-mcmc_trace(colony_loss, regex_pars = "^b_y_|^sd_state__y|^sigma_y|^nu_y")
-
+# mcmc_trace(colony_loss, regex_pars = "^b_y_|^sd_state__y|^sigma_y|^nu_y")
+p <- mcmc_trace(colony_loss, regex_pars = "^b_y_|^sd_state__y|^sigma_y|^nu_y",
+                facet_args = list(ncol = 3)) +
+  scale_x_continuous(breaks = c(0, 1250, 2500))
+ggsave("mcmc_trace.pdf", p, width = 10, height = 12, device = cairo_pdf)
 # mcmc_dens_overlay
 launch_shinystan(colony_loss)
 
@@ -175,6 +194,7 @@ fixef(colony_loss)["y_varroa",]
 
 s <- readRDS(here("data", "scaling_constants.rds"))
 sd_v <- s$scale[s$variable == "varroa"]
+print(s)
 
 b100 <- as_draws_df(colony_loss)$b_y_varroa * 100 / sd_v
 c(estimate = mean(b100), quantile(b100, c(0.025, 0.975)))
@@ -183,3 +203,6 @@ for (v in c("diseases", "pesticides")) {
   d <- as_draws_df(colony_loss)[[paste0("bsp_y_mi", v)]] * 100 / sd_x
   print(c(v, round(c(mean(d), quantile(d, c(.025, .975))), 3)))
 }
+
+np <- brms::nuts_params(colony_loss)
+sum(np$Value[np$Parameter == "divergent__"])
